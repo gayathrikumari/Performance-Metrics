@@ -1,0 +1,131 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Performance Metrics – INFO 5200</title>
+  <style>
+    body{font-family:system-ui, Arial, sans-serif; margin:16px; line-height:1.4}
+    h1{margin:0 0 8px 0}
+    .kpis{display:grid; grid-template-columns:repeat(4, minmax(160px, 1fr)); gap:12px; margin:12px 0 20px}
+    .card{border:1px solid #ddd; border-radius:8px; padding:12px}
+    .label{font-size:12px; color:#555}
+    .value{font-size:20px; font-weight:600}
+    canvas{max-width:100%; margin:16px 0}
+    .row{display:grid; grid-template-columns:1fr; gap:20px}
+    @media(min-width:900px){ .row{grid-template-columns:1fr 1fr} }
+  </style>
+</head>
+<body>
+  <h1>Performance Metrics – INFO 5200</h1>
+  <p>Interactive demo of accuracy, efficiency, errors, and participation. Toggle by week.</p>
+
+  <label>Week: <select id="week"></select></label>
+
+  <div class="kpis">
+    <div class="card"><div class="label">Avg Accuracy</div><div class="value" id="kpi-acc">–</div></div>
+    <div class="card"><div class="label">Avg Time (min)</div><div class="value" id="kpi-time">–</div></div>
+    <div class="card"><div class="label">Avg Errors</div><div class="value" id="kpi-err">–</div></div>
+    <div class="card"><div class="label">Avg Participation</div><div class="value" id="kpi-part">–</div></div>
+  </div>
+
+  <div class="row">
+    <canvas id="acc"></canvas>
+    <canvas id="time"></canvas>
+  </div>
+  <div class="row">
+    <canvas id="err"></canvas>
+    <canvas id="scatter"></canvas>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/papaparse@5.4.1/papaparse.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+  <script>
+    let charts = {};
+    const state = { rows: [], week: 'All' };
+
+    function mean(rows, key){
+      if(!rows.length) return 0;
+      const v = rows.reduce((s,r)=>s + Number(r[key]||0), 0) / rows.length;
+      return Math.round(v*10)/10;
+    }
+
+    function computeKPIs(rows){
+      return {
+        acc: mean(rows, 'Assignment Accuracy %'),
+        time: mean(rows, 'Time Taken (min)'),
+        err: mean(rows, 'Errors'),
+        part: mean(rows, 'Participation Score')
+      };
+    }
+
+    function renderKPIs(k){
+      document.getElementById('kpi-acc').textContent = k.acc + '%';
+      document.getElementById('kpi-time').textContent = k.time;
+      document.getElementById('kpi-err').textContent = k.err;
+      document.getElementById('kpi-part').textContent = k.part;
+    }
+
+    function filtered(){ return state.week==='All' ? state.rows : state.rows.filter(r=>String(r.Week)===String(state.week)); }
+
+    function upsertChart(id, cfg){
+      if(charts[id]){ charts[id].data = cfg.data; charts[id].options = cfg.options||{}; charts[id].update(); }
+      else { charts[id] = new Chart(document.getElementById(id), cfg); }
+    }
+
+    function render(){
+      const rows = filtered();
+      renderKPIs(computeKPIs(rows));
+      const labels = rows.map(r=>r.Student);
+
+      upsertChart('acc',{
+        type:'bar',
+        data:{ labels, datasets:[{label:'Accuracy %', data: rows.map(r=>r['Assignment Accuracy %'])}]},
+        options:{plugins:{legend:{display:true}}, scales:{y:{beginAtZero:true,max:100}}}
+      });
+
+      upsertChart('time',{
+        type:'bar',
+        data:{ labels, datasets:[{label:'Time (min)', data: rows.map(r=>r['Time Taken (min)'])}]},
+        options:{plugins:{legend:{display:true}}, scales:{y:{beginAtZero:true}}}
+      });
+
+      upsertChart('err',{
+        type:'bar',
+        data:{ labels, datasets:[{label:'Errors', data: rows.map(r=>r['Errors'])}]},
+        options:{plugins:{legend:{display:true}}, scales:{y:{beginAtZero:true}}}
+      });
+
+      upsertChart('scatter',{
+        type:'scatter',
+        data:{
+          datasets:[{
+            label:'Participation vs Final',
+            data: rows.map(r=>({x:Number(r['Participation Score']), y:Number(r['Final Grade'])})),
+            pointRadius: rows.map(r=> Math.max(4, Number(r['Assignment Accuracy %'])/8 ))
+          }]
+        },
+        options:{
+          plugins:{legend:{display:true}},
+          scales:{
+            x:{title:{display:true,text:'Participation Score'}, beginAtZero:true, suggestedMax:10},
+            y:{title:{display:true,text:'Final Grade'}, beginAtZero:true, suggestedMax:100}
+          }
+        }
+      });
+    }
+
+    Papa.parse('public/performance_metrics_sample.csv',{
+      download:true, header:true,
+      complete:(res)=>{
+        state.rows = res.data.filter(r=>r.Student);
+        const weeks = Array.from(new Set(state.rows.map(r=>r.Week))).sort((a,b)=>a-b);
+        const sel = document.getElementById('week');
+        sel.innerHTML = '<option>All</option>' + weeks.map(w=>`<option>${w}</option>`).join('');
+        sel.onchange = e=>{ state.week = e.target.value; render(); };
+        render();
+      }
+    });
+  </script>
+</body>
+</html>
